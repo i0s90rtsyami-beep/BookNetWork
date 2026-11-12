@@ -74,7 +74,8 @@ function toObjects(rows) {
 let books = [], byId = {}, outgoing = {}, incoming = {};
 
 const split = s => (s || "").split(/[;；]/).map(x => x.trim()).filter(Boolean);
-const isOwned = b => ["○", "〇", "◯"].includes(b["所持"]);   // 3種類の丸を同じ扱いにする
+// 所持の判定：空欄でも「未所持」でもなければ所持とみなす（丸の種類や入力のゆれを気にしなくてよい）
+const isOwned = b => b["所持"] !== "" && !b["所持"].includes("未");
 // 検索用の正規化：全角/半角・大文字小文字の違いを無視する
 const norm = s => (s || "").normalize("NFKC").toLowerCase();
 
@@ -100,19 +101,32 @@ function bookLi(b, extra = "") {
     <div class="meta">${esc(b["著者"])}　${esc(b["出版者"])} ${esc(b["出版年"])}${extra}</div></li>`;
 }
 
-function renderList(q = "") {
+let lastQuery = "";   // 詳細から一覧に戻ったときも、検索語を残す
+
+// 検索窓は最初に1回だけ作り、入力のたびに作り直すのは「結果の部分」だけにする
+// （検索窓まで作り直すと、日本語入力の変換中の文字が消えてしまうため）
+function renderList() {
+  app.innerHTML = `
+    <input type="search" id="q" placeholder="書名・著者・件名・タグで検索" value="${esc(lastQuery)}">
+    <div id="results"></div>`;
+  const input = document.getElementById("q");
+  let composing = false;                       // 日本語の変換中かどうか
+  input.addEventListener("compositionstart", () => composing = true);
+  input.addEventListener("compositionend", () => { composing = false; update(); });
+  input.addEventListener("input", () => { if (!composing) update(); });
+  function update() { lastQuery = input.value; renderResults(lastQuery); }
+  renderResults(lastQuery);
+}
+
+function renderResults(q) {
   const nq = norm(q);
   // 検索語が空 → 手持ちの本だけ／検索語あり → 未所持も含めて検索
   const hits = books.filter(b => nq
     ? norm(["書名","著者","出版者","件名","タグ","メモ"].map(k => b[k]).join(" ")).includes(nq)
     : isOwned(b));
-  app.innerHTML = `
-    <input type="search" id="q" placeholder="書名・著者・件名・タグで検索" value="${esc(q)}">
+  document.getElementById("results").innerHTML = `
     <div class="hint">${nq ? `${hits.length}件（未所持も含む）` : `手持ちの本 ${hits.length}冊（検索すると未所持の本も探せます）`}</div>
     <ul>${hits.map(b => bookLi(b)).join("")}</ul>`;
-  const input = document.getElementById("q");
-  input.addEventListener("input", e => renderList(e.target.value));
-  if (q) { input.focus(); input.setSelectionRange(q.length, q.length); }
 }
 
 function renderDetail(id) {
